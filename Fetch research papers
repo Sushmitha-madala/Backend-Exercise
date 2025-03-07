@@ -1,0 +1,48 @@
+import argparse
+import csv
+import requests
+import xml.etree.ElementTree as ET
+from typing import List, Dict
+
+# PubMed API Base URLs
+PUBMED_SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+PUBMED_FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+
+def fetch_pubmed_ids(query: str, debug: bool = False) -> List[str]:
+    """Fetches PubMed IDs for a given query."""
+    params = {
+        "db": "pubmed",
+        "term": query,
+        "retmax": 10,  # Fetch a limited number for testing (adjust as needed)
+        "retmode": "xml"
+    }
+    response = requests.get(PUBMED_SEARCH_URL, params=params)
+    if debug:
+        print("PubMed Search Response:", response.text)
+    root = ET.fromstring(response.content)
+    return [id_elem.text for id_elem in root.findall(".//Id")]
+
+def fetch_paper_details(pubmed_ids: List[str], debug: bool = False) -> List[Dict]:
+    """Fetches details of research papers given their PubMed IDs."""
+    papers = []
+    params = {
+        "db": "pubmed",
+        "id": ",".join(pubmed_ids),
+        "retmode": "xml"
+    }
+    response = requests.get(PUBMED_FETCH_URL, params=params)
+    if debug:
+        print("PubMed Fetch Response:", response.text)
+
+    root = ET.fromstring(response.content)
+    for article in root.findall(".//PubmedArticle"):
+        paper = {
+            "PubMedID": article.find(".//PMID").text,
+            "Title": article.find(".//ArticleTitle").text if article.find(".//ArticleTitle") is not None else "N/A",
+            "Publication Date": article.find(".//PubDate/Year").text if article.find(".//PubDate/Year") is not None else "Unknown",
+            "Non-academic Author(s)": [],
+            "Company Affiliation(s)": [],
+            "Corresponding Author Email": "N/A"
+        }
+
+        # Extract author and affiliation
