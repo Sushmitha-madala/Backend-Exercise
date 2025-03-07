@@ -1,0 +1,65 @@
+import requests
+import xml.etree.ElementTree as ET
+from typing import List, Dict
+
+PUBMED_SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+PUBMED_FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+
+def fetch_pubmed_ids(query: str, max_results: int = 10) -> List[str]:
+    """Fetches PubMed IDs for a given query."""
+    params = {
+        "db": "pubmed",
+        "term": query,
+        "retmax": max_results,
+        "retmode": "xml"
+    }
+    response = requests.get(PUBMED_SEARCH_URL, params=params)
+    root = ET.fromstring(response.content)
+    return [id_elem.text for id_elem in root.findall(".//Id")]
+
+def fetch_paper_details(pubmed_ids: List[str]) -> List[Dict]:
+    """Fetches paper details from PubMed given a list of PubMed IDs."""
+    papers = []
+    if not pubmed_ids:
+        return papers
+
+    params = {
+        "db": "pubmed",
+        "id": ",".join(pubmed_ids),
+        "retmode": "xml"
+    }
+    response = requests.get(PUBMED_FETCH_URL, params=params)
+    root = ET.fromstring(response.content)
+
+    for article in root.findall(".//PubmedArticle"):
+        paper = {
+            "PubMedID": article.find(".//PMID").text,
+            "Title": article.find(".//ArticleTitle").text if article.find(".//ArticleTitle") is not None else "N/A",
+            "Publication Date": article.find(".//PubDate/Year").text if article.find(".//PubDate/Year") is not None else "Unknown",
+            "Authors": [],
+            "Company Affiliation": "N/A",
+            "Corresponding Author Email": "N/A"
+        }
+
+        # Extract authors and affiliations
+        for author in article.findall(".//Author"):
+            name = author.find("LastName")
+            affiliation = author.find(".//Affiliation")
+            email = author.find(".//Email")
+
+            if name is not None and affiliation is not None:
+                author_name = name.text
+                affiliation_text = affiliation.text.lower()
+                
+                # Check for company affiliation
+                if any(keyword in affiliation_text for keyword in ["pharma", "biotech", "inc", "ltd", "corporation"]):
+                    paper["Authors"].append(author_name)
+                    paper["Company Affiliation"] = affiliation.text
+
+                # Check for corresponding author email
+                if email is not None:
+                    paper["Corresponding Author Email"] = email.text
+
+        papers.append(paper)
+    
+    return papers
